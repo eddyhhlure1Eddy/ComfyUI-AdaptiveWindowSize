@@ -1,0 +1,17 @@
+# ComfyUI-AdaptiveWindowSize Requirements
+
+# Core dependencies (should be available in ComfyUI environment)
+torch>=1.9.0
+numpy
+pillow
+tqdm
+
+# ComfyUI specific (bundled with ComfyUI)
+# comfy
+# folder_paths
+
+# Required ComfyUI Extensions
+# ComfyUI-WanVideoWrapper (must be installed separately)
+
+# Optional dependencies for enhanced functionality
+# color-matcher (for color matching features)

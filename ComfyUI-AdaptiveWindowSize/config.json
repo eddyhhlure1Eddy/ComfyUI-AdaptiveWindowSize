@@ -1,0 +1,29 @@
+{
+  "name": "ComfyUI-AdaptiveWindowSize",
+  "version": "1.0.0",
+  "description": "Adaptive window size nodes for WanVideo with automatic frame alignment",
+  "author": "AI Assistant",
+  "license": "MIT",
+  "repository": "",
+  "dependencies": {
+    "ComfyUI-WanVideoWrapper": "required",
+    "torch": ">=1.9.0",
+    "numpy": "*",
+    "pillow": "*"
+  },
+  "settings": {
+    "default_adaptive_mode": "optimal_fit",
+    "enable_logging": true,
+    "fallback_to_original": true
+  },
+  "categories": [
+    "AdaptiveWanVideo"
+  ],
+  "node_list": [
+    {
+      "class": "AdaptiveWanVideoAnimateEmbeds",
+      "display_name": "Adaptive WanVideo Animate Embeds",
+      "description": "Adaptive window size version of WanVideo Animate Embeds that minimizes waste frames"
+    }
+  ]
+}
