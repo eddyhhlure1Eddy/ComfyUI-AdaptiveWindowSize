@@ -1,10 +1,12 @@
 # ComfyUI-AdaptiveWindowSize
 
-🎯 **自适应窗口大小节点** - 解决WanVideo视频生成中的帧对齐问题
+🎯 **智能增强节点套件** - 解决WanVideo帧对齐问题 + 精确面部检测裁剪
 
 ## 概述
 
-ComfyUI-AdaptiveWindowSize 是一个专门为WanVideo设计的自定义节点扩展，通过智能调整窗口大小来解决视频生成过程中的帧对齐问题，消除末尾的浪费帧。
+ComfyUI-AdaptiveWindowSize 是一个功能强大的自定义节点扩展，提供两大核心功能：
+1. **自适应窗口大小** - 解决WanVideo视频生成中的帧对齐问题
+2. **智能面部检测裁剪** - 基于多算法的精确面部检测和裁剪
 
 ## 主要功能
 
@@ -19,6 +21,14 @@ ComfyUI-AdaptiveWindowSize 是一个专门为WanVideo设计的自定义节点扩
 - **零浪费帧**: 消除视频末尾的无效帧
 - **精确对齐**: 视频长度精确匹配输入帧数
 - **内存优化**: 保持原有的内存管理机制
+
+### 🎯 智能面部检测裁剪
+- **多算法融合**: 支持OpenCV Haar、DNN、MediaPipe等算法
+- **自动优选**: Hybrid Auto模式自动选择最佳算法组合
+- **精确定位**: 结合mask和面部检测的智能裁剪
+- **参数可调**: 置信度、优先级、扩展系数等灵活配置
+- **NMS去重**: 自动过滤重复检测结果
+- **实时反馈**: 详细的检测信息输出
 
 ## 安装方法
 
@@ -77,6 +87,29 @@ git clone <repository-url> ComfyUI-AdaptiveWindowSize
 3. **观察日志输出**:
    节点会输出窗口大小调整信息和浪费帧减少情况
 
+### Smart Image Crop 使用示例
+
+1. **替换原始裁剪节点**:
+   将工作流中的 `ImageCropByMaskAndResize` 节点替换为 `SmartImageCropByMaskAndResize`
+
+2. **配置面部检测**:
+   ```
+   face_detection_mode: hybrid_auto (推荐)
+   face_confidence: 0.7
+   face_priority: 0.8 (80%依赖面部检测，20%依赖mask)
+   face_expansion: 1.3 (面部区域扩展30%)
+   ```
+
+3. **算法选择指南**:
+   - `disabled`: 禁用面部检测，仅使用mask
+   - `opencv_haar`: 快速检测，适合实时处理
+   - `opencv_dnn`: 平衡精度和速度，需要模型文件
+   - `mediapipe`: 高精度检测，需要安装MediaPipe
+   - `hybrid_auto`: 最佳效果，自动选择可用算法
+
+4. **查看检测结果**:
+   节点输出包含检测详情：`Method: hybrid_auto, Faces: 2, Algorithms: ['haar', 'mediapipe']`
+
 ## 技术原理
 
 ### 算法详解
@@ -104,13 +137,39 @@ for size in range(min_size, max_size + 1):
 - 确保窗口大小不小于基础窗口的50%
 - 搜索范围限制在基础窗口的75%-125%
 
+### 面部检测算法原理
+
+#### 算法融合策略
+```python
+# Hybrid Auto模式工作流程
+1. 并行运行多种检测算法
+2. 收集所有检测结果
+3. 应用NMS去除重复检测
+4. 根据置信度排序
+5. 与原始mask智能融合
+```
+
+#### 智能mask融合
+```python
+combined_mask = (1 - face_priority) * original_mask + face_priority * face_mask
+```
+
 ## 性能对比
 
+### 自适应窗口效果
 | 模式 | 81帧场景浪费帧 | 100帧场景浪费帧 | 适用场景 |
 |------|---------------|----------------|----------|
 | disabled | 4帧 | 23帧 | 兼容性优先 |
 | adaptive | 0帧 | 0帧 | 平衡模式 |
 | optimal_fit | 0帧 | 0帧 | 最优效果 |
+
+### 面部检测性能
+| 算法 | 速度 | 精度 | 内存 | 依赖 |
+|------|------|------|------|------|
+| opencv_haar | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 无 |
+| opencv_dnn | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | 模型文件 |
+| mediapipe | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐ | pip install |
+| hybrid_auto | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐ | 自动选择 |
 
 ## 故障排除
 
@@ -129,6 +188,22 @@ for size in range(min_size, max_size + 1):
 3. **性能问题**:
    - 使用 `optimal_fit` 模式可能略微增加计算时间
    - 对于大型视频，建议使用 `adaptive` 模式
+
+4. **面部检测不准确**:
+   - 降低 `face_confidence` 阈值 (尝试0.5-0.6)
+   - 使用 `hybrid_auto` 模式获得最佳结果
+   - 调整 `face_priority` 平衡mask和检测结果
+   - 安装MediaPipe: `pip install mediapipe`
+
+5. **面部检测算法不可用**:
+   - MediaPipe错误: 安装mediapipe (`pip install mediapipe`)
+   - OpenCV DNN错误: 下载模型文件到 `ComfyUI/models/face_detection/`
+   - 使用 `opencv_haar` 作为基础算法 (无需额外依赖)
+
+6. **mask和面部检测冲突**:
+   - 调整 `face_priority` 参数 (0.0=仅mask, 1.0=仅面部)
+   - 使用 `face_expansion` 控制面部区域大小
+   - 检查mask质量和面部检测结果
 
 ### 调试信息
 

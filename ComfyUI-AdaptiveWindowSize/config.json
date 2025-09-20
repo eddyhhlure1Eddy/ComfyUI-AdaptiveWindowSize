@@ -1,8 +1,8 @@
 {
   "name": "ComfyUI-AdaptiveWindowSize",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Adaptive window size nodes for WanVideo with automatic frame alignment",
-  "author": "AI Assistant",
+  "author": "eddy",
   "license": "MIT",
   "repository": "",
   "dependencies": {

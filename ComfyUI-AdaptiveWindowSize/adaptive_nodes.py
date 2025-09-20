@@ -1,3 +1,11 @@
+"""
+AdaptiveWanVideoAnimateEmbeds Node
+Adaptive window size implementation for WanVideo with dimension alignment
+
+Author: eddy
+Version: 1.0.0
+"""
+
 import os
 import gc
 import math
@@ -196,8 +204,12 @@ class AdaptiveWanVideoAnimateEmbeds:
 
         vae.to(device)
 
+        # Initialize variables
+        pose_latents = ref_latent = bg_latents = None
+        resized_ref_images = resized_bg_images = resized_face_images = None
+        ref_mask = None
+
         # Process pose images
-        pose_latents = ref_latents = ref_latent = None
         if pose_images is not None:
             pose_images = pose_images[..., :3]
             if pose_images.shape[1] != H or pose_images.shape[2] != W:
@@ -223,31 +235,49 @@ class AdaptiveWanVideoAnimateEmbeds:
             else:
                 resized_bg_images = bg_images.permute(3, 0, 1, 2) # C, T, H, W
             resized_bg_images = resized_bg_images[:3] * 2 - 1
-            bg_latents = vae.encode([resized_bg_images.to(device, vae.dtype)], device, tiled=tiled_vae)
-            bg_latents = bg_latents.to(offload_device)
-            vae.model.clear_cache()
+            if not looping:
+                bg_latents = vae.encode([resized_bg_images.to(device, vae.dtype)], device, tiled=tiled_vae)[0]
+                bg_latents = bg_latents.to(offload_device)
+                vae.model.clear_cache()
+                print("bg_latents", bg_latents.shape)
+                del resized_bg_images
+            else:
+                resized_bg_images = resized_bg_images.to(offload_device, dtype=vae.dtype)
 
         # Process reference images
         if ref_images is not None:
-            ref_images = ref_images[..., :3]
             if ref_images.shape[1] != H or ref_images.shape[2] != W:
                 resized_ref_images = common_upscale(ref_images.movedim(-1, 1), W, H, "lanczos", "disabled").movedim(0, 1)
             else:
                 resized_ref_images = ref_images.permute(3, 0, 1, 2) # C, T, H, W
-            resized_ref_images = resized_ref_images * 2 - 1
-            ref_latents = vae.encode([resized_ref_images.to(device, vae.dtype)], device, tiled=tiled_vae)
-            ref_latents = ref_latents.to(offload_device)
-            vae.model.clear_cache()
-            ref_latent_masked = torch.zeros(4, ref_latents.shape[2], lat_h, lat_w, device=ref_latents.device, dtype=ref_latents.dtype)
-            ref_latent_masked[:, :ref_latents.shape[2]] = ref_latents[0]
+            resized_ref_images = resized_ref_images[:3] * 2 - 1
 
-        # Process mask
-        if mask is not None:
-            ref_mask = mask.clone()
-            if ref_mask.shape[-2] != lat_h or ref_mask.shape[-1] != lat_w:
-                ref_mask = common_upscale(ref_mask.unsqueeze(0), lat_w, lat_h, "nearest-exact", "disabled").squeeze(0)
-            ref_mask = ref_mask.to(vae.dtype).to(offload_device)
-            ref_mask = ref_mask.unsqueeze(-1).permute(3, 0, 1, 2) # C, T, H, W
+            if looping or bg_images is not None: # looping or when using background, encode refs separately
+                ref_latent = vae.encode([resized_ref_images.to(device, vae.dtype)], device, tiled=tiled_vae)[0]
+                msk = torch.zeros(4, 1, lat_h, lat_w, device=device, dtype=vae.dtype)
+                msk[:, :1] = 1
+                ref_latent_masked = torch.cat([msk, ref_latent], dim=0) # 4+C 1 H W
+                ref_latent_masked = ref_latent_masked.to(offload_device)
+
+            if bg_images is None:
+                zero_frames = torch.zeros(3, num_frames - num_refs, H, W, device=device, dtype=vae.dtype)
+                concatenated = torch.cat([resized_ref_images.to(device, dtype=vae.dtype), zero_frames], dim=1)
+                del zero_frames
+                ref_latent = vae.encode([concatenated.to(device, vae.dtype)], device, tiled=tiled_vae)[0]
+                ref_latent = ref_latent.to(offload_device)
+                del concatenated
+
+            vae.model.clear_cache()
+
+            if mask is None:
+                ref_mask = torch.zeros(1, num_frames, lat_h, lat_w, device=offload_device, dtype=vae.dtype)
+            else:
+                ref_mask = 1 - mask[:num_frames]
+                if ref_mask.shape[0] < num_frames and not looping:
+                    ref_mask = torch.cat([ref_mask, ref_mask[-1:].repeat(num_frames - ref_mask.shape[0], 1, 1)], dim=0)
+                ref_mask = common_upscale(ref_mask.unsqueeze(1), lat_w, lat_h, "nearest", "disabled").squeeze(1)
+                ref_mask = ref_mask.to(vae.dtype).to(offload_device)
+                ref_mask = ref_mask.unsqueeze(-1).permute(3, 0, 1, 2) # C, T, H, W
 
             if bg_images is None:
                 ref_mask[:, :num_refs] = 1
@@ -291,7 +321,7 @@ class AdaptiveWanVideoAnimateEmbeds:
             "max_seq_len": seq_len,
             "pose_latents": pose_latents,
             "bg_images": resized_bg_images if bg_images is not None and looping else None,
-            "ref_masks": ref_mask if mask is not None and looping else None,
+            "ref_masks": ref_mask if ref_images is not None and mask is not None and looping else None,
             "ref_latent": ref_latent,
             "ref_image": resized_ref_images if ref_images is not None else None,
             "face_pixels": resized_face_images if face_images is not None else None,
